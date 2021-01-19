@@ -1,5 +1,14 @@
 #define OLC_PGE_APPLICATION
+#include <string>
 #include "olcPixelGameEngine.h"
+
+constexpr auto screenBlockWidth = 24;
+constexpr auto screenBlockHeight = 30;
+
+constexpr auto barHeight = 28;
+constexpr auto barInitBlockPos = 2;
+constexpr auto barBlockWidth = 4;
+constexpr auto barBlockValue = 9;
 
 class BreakOut : public olc::PixelGameEngine
 {
@@ -10,19 +19,23 @@ public:
 	}
 
 private:
-	float fBatPos = 20.0f;
-	float fBatWidth = 40.0f;
-	float fBatSpeed = 25.0f;
+	const olc::vi2d vBlockSize = { 16,16 };
+	std::unique_ptr<int[]> blocks;
+
+	float fBatPos = vBlockSize.x * barInitBlockPos;
+	int iBatBlockPos = barInitBlockPos;
+	float fBatWidth = vBlockSize.x * barBlockWidth;
+	float fBatSpeed = 250.0f;
 
 	olc::vf2d vBallPos = { 0.0f, 0.0f };
 	olc::vf2d vBallDir = { 0.0f, 0.0f };
 	float fBallSpeed = 20.0f;
 	float fBallRadius = 5.0f;
 
-	olc::vi2d vBlockSize = { 16,16 };
-	std::unique_ptr<int[]> blocks;
+
 
 	std::unique_ptr<olc::Sprite> sprTile;
+	std::unique_ptr<olc::Sprite> sprBat;
 	std::unique_ptr<olc::Sprite> sprFragment;
 	std::unique_ptr<olc::Decal> decFragment;
 
@@ -39,29 +52,46 @@ private:
 	std::list<sFragment> listFragments;
 
 public:
+	void startBall()
+	{
+		// Start Ball
+		float fAngle = float(rand()) / float(RAND_MAX) * 2.0f * 3.14159f;
+		fAngle = -0.4f;
+		vBallDir = { cos(fAngle), sin(fAngle) };
+		vBallPos = { 12.5f, 15.5f };
+	}
 	bool OnUserCreate() override
 	{
-		blocks = std::make_unique<int[]>(24 * 30);
-		for (int y = 0; y < 30; y++)
+		blocks = std::make_unique<int[]>(screenBlockWidth * screenBlockHeight);
+		for (int y = 0; y < screenBlockHeight; y++)
 		{
-			for (int x = 0; x < 24; x++)
+			for (int x = 0; x < screenBlockWidth; x++)
 			{
-				if (x == 0 || y == 0 || x == 23)
-					blocks[y * 24 + x] = 10;
+				if (x == 0 || y == 0 || x == screenBlockWidth - 1)
+					blocks[y * screenBlockWidth + x] = 10;
 				else
-					blocks[y * 24 + x] = 0;
+					blocks[y * screenBlockWidth + x] = 0;
+
+				/*Barrita*/
+				if (y == barHeight && (x >= barInitBlockPos && x < (barInitBlockPos + barBlockWidth)) )
+				{
+					blocks[y * screenBlockWidth + x] = barBlockValue;
+				}
 
 				if (x > 2 && x <= 20 && y > 3 && y <= 5)
-					blocks[y * 24 + x] = 1;
+					blocks[y * screenBlockWidth + x] = 1;
 				if (x > 2 && x <= 20 && y > 5 && y <= 7)
-					blocks[y * 24 + x] = 2;
+					blocks[y * screenBlockWidth + x] = 2;
 				if (x > 2 && x <= 20 && y > 7 && y <= 9)
-					blocks[y * 24 + x] = 3;
+					blocks[y * screenBlockWidth + x] = 3;
 			}
 		}
 
 		// Load the sprite
 		sprTile = std::make_unique<olc::Sprite>("tut_tiles.png");
+
+		// Load bat sprite
+		sprBat = std::make_unique<olc::Sprite>("tut_bat.png");
 
 		// Load Fragment Sprite
 		sprFragment = std::make_unique<olc::Sprite>("tut_fragment.png");
@@ -69,16 +99,39 @@ public:
 		// Create decal of fragment
 		decFragment = std::make_unique<olc::Decal>(sprFragment.get());
 
-		// Start Ball
-		float fAngle = float(rand()) / float(RAND_MAX) * 2.0f * 3.14159f;
-		fAngle = -0.4f;
-		vBallDir = { cos(fAngle), sin(fAngle) };
-		vBallPos = { 12.5f, 15.5f };
+		startBall();
 		return true;
 	}
 
 	bool OnUserUpdate(float fElapsedTime) override
 	{
+
+
+		// Handle User Input
+		if (GetKey(olc::Key::LEFT).bHeld)
+			fBatPos -= fBatSpeed * fElapsedTime;
+		if (GetKey(olc::Key::RIGHT).bHeld) 
+			fBatPos += fBatSpeed * fElapsedTime;
+
+		// Check Bat boundaries
+		if (fBatPos < vBlockSize.x) fBatPos = vBlockSize.x;
+		if (fBatPos + fBatWidth > (screenBlockWidth - 1) * vBlockSize.x) fBatPos = ((screenBlockWidth - 1) * vBlockSize.x) - fBatWidth;
+
+		//Update Blocks position. TODO: Optimize this, there must be a better way to do this.
+		for (int i = iBatBlockPos; i < (iBatBlockPos + barBlockWidth); i++)
+		{
+			blocks[barHeight * screenBlockWidth + i] = 0;
+		}
+
+		iBatBlockPos = fBatPos / vBlockSize.x;
+
+		for (int i = iBatBlockPos; i < (iBatBlockPos + barBlockWidth); i++)
+		{
+			blocks[barHeight * screenBlockWidth + i] = 9;
+		}
+
+
+
 		// A better collision detection
 		// Calculate where ball should be, if no collision
 		olc::vf2d vPotentialBallPos = vBallPos + vBallDir * fBallSpeed * fElapsedTime;
@@ -99,7 +152,7 @@ public:
 			else
 			{
 				// Ball has collided with a tile
-				bool bTileHit = tile < 10;
+				bool bTileHit = tile < 9;
 				if (bTileHit)
 				{
 					id = tile;
@@ -140,12 +193,14 @@ public:
 			}
 		}
 
-		// Fake Floor
-		if (vBallPos.y > 20.0f) vBallDir.y *= -1.0f;
+
 
 		// Actually update ball position with modified direction
 		vBallPos += vBallDir * fBallSpeed * fElapsedTime;
 
+		// Reset Ball
+		if (vBallPos.y > 29)
+			startBall();
 
 		// Update fragments
 		for (auto& f : listFragments)
@@ -165,11 +220,11 @@ public:
 		// Draw Screen
 		Clear(olc::DARK_BLUE);
 		SetPixelMode(olc::Pixel::MASK); // Dont draw pixels which have any transparency
-		for (int y = 0; y < 30; y++)
+		for (int y = 0; y < screenBlockHeight; y++)
 		{
-			for (int x = 0; x < 24; x++)
+			for (int x = 0; x < screenBlockWidth; x++)
 			{
-				switch (blocks[y * 24 + x])
+				switch (blocks[y * screenBlockWidth + x])
 				{
 				case 0: // Do nothing
 					break;
@@ -186,6 +241,7 @@ public:
 					DrawPartialSprite(olc::vi2d(x, y) * vBlockSize, sprTile.get(), olc::vi2d(3, 0) * vBlockSize, vBlockSize);
 					break;
 				}
+				//DrawString(x * 16, y * 16, std::to_string(blocks[y * screenBlockWidth + x]), olc::WHITE, 1);
 			}
 		}
 		SetPixelMode(olc::Pixel::NORMAL); // Draw all pixels
@@ -197,6 +253,8 @@ public:
 		for (auto& f : listFragments)
 			DrawRotatedDecal(f.pos * vBlockSize, decFragment.get(), f.fAngle, { 4, 4 }, { 1, 1 }, f.colour);
 
+		// Draw Bat
+		DrawSprite(int(fBatPos), ScreenHeight() - 32, sprBat.get(), 1);
 
 		return true;
 	}
